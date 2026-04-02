@@ -36,8 +36,10 @@ The application interfaces directly with the kernel through system calls, interr
 | `add <task>` | Adds a new task to the in-memory list |
 | `list` | Displays all tasks with their ID and status |
 | `remove <id>` | Deletes a task by its unique ID |
-| `save <filename>` | Encrypts and writes the task list to disk |
-| `load <filename>` | Reads and decrypts a task list from disk |
+| `complete <id>` | Marks a task as completed |
+| `uncomplete <id>` | Marks a task as incomplete |
+| `save <filename> <key>` | Encrypts and writes the task list to disk |
+| `load <filename> <key>` | Reads and decrypts a task list from disk |
 
 ---
 

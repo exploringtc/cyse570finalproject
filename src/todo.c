@@ -93,6 +93,61 @@ static int parse_int(const char* s, int* out)
     return 1;
 }
 
+static char hex_digit(int value)
+{
+    if (value < 10) {
+        return (char)('0' + value);
+    }
+    return (char)('A' + (value - 10));
+}
+
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return 10 + (c - 'a');
+    }
+    if (c >= 'A' && c <= 'F') {
+        return 10 + (c - 'A');
+    }
+    return -1;
+}
+
+/* Escapes reserved separators so serialized text stays parse-safe. */
+static int append_encoded_text(char* out, int out_size, int* pos, const char* text)
+{
+    int i = 0;
+
+    while (text[i] != '\0') {
+        unsigned char ch = (unsigned char)text[i];
+        int must_escape = (ch == '|') || (ch == '\n') || (ch == '\r') || (ch == '%');
+
+        if (!must_escape) {
+            if (*pos >= out_size - 1) {
+                return 0;
+            }
+            out[*pos] = (char)ch;
+            (*pos)++;
+            out[*pos] = '\0';
+        } else {
+            if (*pos >= out_size - 4) {
+                return 0;
+            }
+            out[*pos] = '%';
+            out[*pos + 1] = hex_digit((ch >> 4) & 0x0F);
+            out[*pos + 2] = hex_digit(ch & 0x0F);
+            *pos += 3;
+            out[*pos] = '\0';
+        }
+
+        i++;
+    }
+
+    return 1;
+}
+
 void todo_init(struct todo_list* list)
 {
     /* Keep IDs monotonically increasing so removed IDs are never reused. */
@@ -181,7 +236,7 @@ int todo_serialize(const struct todo_list* list, char* out, int out_size, int* w
         if (!append_text(out, out_size, &pos, "|")) {
             return TODO_ERR_SERIALIZE;
         }
-        if (!append_text(out, out_size, &pos, list->tasks[i].description)) {
+        if (!append_encoded_text(out, out_size, &pos, list->tasks[i].description)) {
             return TODO_ERR_SERIALIZE;
         }
         if (!append_text(out, out_size, &pos, "\n")) {
@@ -231,9 +286,33 @@ int todo_deserialize(struct todo_list* list, const char* data, int data_size)
         i++;
 
         while (i < data_size && data[i] != '\n' && desc_i < TODO_MAX_DESC_LEN - 1) {
+            if (data[i] == '%') {
+                int hi;
+                int lo;
+
+                if (i + 2 >= data_size) {
+                    return TODO_ERR_DESERIALIZE;
+                }
+
+                hi = hex_value(data[i + 1]);
+                lo = hex_value(data[i + 2]);
+                if (hi < 0 || lo < 0) {
+                    return TODO_ERR_DESERIALIZE;
+                }
+
+                desc[desc_i++] = (char)((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+
             desc[desc_i++] = data[i++];
         }
         desc[desc_i] = '\0';
+
+        if (i < data_size && data[i] != '\n') {
+            /* Description exceeded in-memory limit before end-of-line. */
+            return TODO_ERR_DESERIALIZE;
+        }
 
         if (i < data_size && data[i] == '\n') {
             i++;
